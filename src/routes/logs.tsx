@@ -796,8 +796,11 @@ const MODULE_LABELS: Record<string, string> = {
 
 function StoragePhoto({ path, bucket = "travel-docs", alt }: { path: string; bucket?: string; alt: string }) {
   const [url, setUrl] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     if (!path) return;
+    setUrl(null);
+    setLoaded(false);
     supabaseBrowser.storage.from(bucket).createSignedUrl(path, 3600).then(({ data }) => {
       if (data?.signedUrl) setUrl(data.signedUrl);
     });
@@ -805,8 +808,14 @@ function StoragePhoto({ path, bucket = "travel-docs", alt }: { path: string; buc
   if (!url) return null;
   return (
     <div className="col-span-2 mt-1">
-      <p className="text-[10px] text-muted-foreground mb-1">{alt}</p>
-      <img src={url} alt={alt} className="max-w-full max-h-48 rounded-md border border-border object-contain" />
+      {loaded && <p className="text-[10px] text-muted-foreground mb-1">{alt}</p>}
+      <img
+        src={url}
+        alt={alt}
+        onLoad={() => setLoaded(true)}
+        onError={() => setUrl(null)}
+        className={`max-w-full max-h-48 rounded-md border border-border object-contain ${loaded ? "" : "hidden"}`}
+      />
     </div>
   );
 }

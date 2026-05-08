@@ -53,22 +53,14 @@ export async function supabaseRest<T>(
     throw new Error(await parseError(response));
   }
 
-  if (method === "HEAD") {
-    return {
-      data: null as T,
-      count: parseCount(response.headers.get("content-range")),
-    };
+  const count = parseCount(response.headers.get("content-range"));
+
+  if (method === "HEAD" || response.status === 204) {
+    return { data: null as T, count };
   }
 
-  if (response.status === 204) {
-    return {
-      data: null as T,
-      count: parseCount(response.headers.get("content-range")),
-    };
-  }
+  const text = await response.text();
+  if (!text) return { data: null as T, count };
 
-  return {
-    data: (await response.json()) as T,
-    count: parseCount(response.headers.get("content-range")),
-  };
+  return { data: JSON.parse(text) as T, count };
 }

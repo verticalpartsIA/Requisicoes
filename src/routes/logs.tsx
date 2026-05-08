@@ -1148,14 +1148,9 @@ function LogsPage() {
       }
     } else {
       // PDF real via reportgen.io
-      if (!richDetail) {
-        toast.error("Abra os detalhes de um ticket antes de exportar PDF.");
-        setExportLoading(false);
-        return;
-      }
       try {
         const result = await generateRequisitionPdf({
-          data: { detail: JSON.stringify(richDetail) },
+          data: { ticketNumber: exportTicketId },
         });
         const binary = atob(result.base64);
         const bytes = new Uint8Array(binary.length);

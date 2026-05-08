@@ -11,6 +11,7 @@ interface ProductRequisitionInput {
   modelReference: string;
   referenceLinks: string[];
   onlinePurchaseSuggestion: string;
+  photoPath?: string;
   deliveryDeadline: string;
   deliveryLocation: string;
   urgencyLevel: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
@@ -71,6 +72,7 @@ export async function createProductRequisitionClient(input: ProductRequisitionIn
         model_reference: input.modelReference,
         reference_links: input.referenceLinks,
         online_purchase_suggestion: input.onlinePurchaseSuggestion,
+        photo_path: input.photoPath || null,
         delivery_location: input.deliveryLocation,
       },
     });

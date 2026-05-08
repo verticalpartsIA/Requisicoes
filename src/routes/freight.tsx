@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
 import {
   Truck, Plus, ChevronRight, ChevronLeft, MapPin, Package, CalendarIcon, ClipboardList, ShieldCheck,
+  ImageIcon, Upload,
 } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -76,6 +77,10 @@ function FreightPage() {
   const [vehicleType, setVehicleType] = useState("");
 
   const [cargoDescription, setCargoDescription] = useState("");
+  const [unloadingLocation, setUnloadingLocation] = useState("");
+  const [cargoPhotoFile, setCargoPhotoFile] = useState<File | null>(null);
+  const [cargoPhotoPreview, setCargoPhotoPreview] = useState<string | null>(null);
+  const [cargoPhotoDescription, setCargoPhotoDescription] = useState("");
   const [weight, setWeight] = useState("");
   const [dimensions, setDimensions] = useState("");
   const [fragile, setFragile] = useState(false);
@@ -120,6 +125,8 @@ function FreightPage() {
       if (typeof s.destinationAddress === 'string') setDestinationAddress(s.destinationAddress);
       if (typeof s.vehicleType === 'string') setVehicleType(s.vehicleType);
       if (typeof s.cargoDescription === 'string') setCargoDescription(s.cargoDescription);
+      if (typeof s.unloadingLocation === 'string') setUnloadingLocation(s.unloadingLocation);
+      if (typeof s.cargoPhotoDescription === 'string') setCargoPhotoDescription(s.cargoPhotoDescription);
       if (typeof s.weight === 'string') setWeight(s.weight);
       if (typeof s.dimensions === 'string') setDimensions(s.dimensions);
       if (typeof s.fragile === 'boolean') setFragile(s.fragile);
@@ -137,20 +144,23 @@ function FreightPage() {
     try {
       sessionStorage.setItem(DIALOG_KEY, JSON.stringify({
         open: true, step, originAddress, destinationAddress, vehicleType,
-        cargoDescription, weight, dimensions, fragile, declaredValue,
+        cargoDescription, unloadingLocation, cargoPhotoDescription, weight, dimensions, fragile, declaredValue,
         pickupDate: pickupDate?.toISOString(),
         urgencyLevel, justification,
       }));
     } catch { /* ignore */ }
   }, [dialogOpen, step, originAddress, destinationAddress, vehicleType,
-      cargoDescription, weight, dimensions, fragile, declaredValue,
+      cargoDescription, unloadingLocation, cargoPhotoDescription, weight, dimensions, fragile, declaredValue,
       pickupDate, urgencyLevel, justification]);
 
   const resetForm = () => {
     sessionStorage.removeItem(DIALOG_KEY);
     setStep(0);
     setOriginAddress(""); setDestinationAddress(""); setVehicleType("");
-    setCargoDescription(""); setWeight(""); setDimensions(""); setFragile(false); setDeclaredValue("");
+    setCargoDescription(""); setUnloadingLocation("");
+    if (cargoPhotoPreview) URL.revokeObjectURL(cargoPhotoPreview);
+    setCargoPhotoFile(null); setCargoPhotoPreview(null); setCargoPhotoDescription("");
+    setWeight(""); setDimensions(""); setFragile(false); setDeclaredValue("");
     setPickupDate(undefined); setUrgencyLevel(""); setJustification("");
   };
 
@@ -177,6 +187,17 @@ function FreightPage() {
     if (!validateStep()) return;
     setIsSubmitting(true);
     try {
+      let cargoPhotoPath: string | null = null;
+      if (cargoPhotoFile) {
+        const ext = cargoPhotoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+        const path = `m5/${user?.id ?? "anon"}/${Date.now()}.${ext}`;
+        const { data: uploadData, error: uploadError } = await supabaseBrowser.storage
+          .from("travel-docs")
+          .upload(path, cargoPhotoFile, { upsert: true });
+        if (uploadError) console.warn("[photo upload]", uploadError.message);
+        else cargoPhotoPath = uploadData.path;
+      }
+
       const { error } = await supabaseBrowser
         .from("requisitions")
         .insert({
@@ -194,6 +215,9 @@ function FreightPage() {
             origin_address: originAddress,
             destination_address: destinationAddress,
             vehicle_type: vehicleType,
+            unloading_location: unloadingLocation || null,
+            cargo_photo_path: cargoPhotoPath,
+            cargo_photo_description: cargoPhotoDescription || null,
             weight_kg: weight ? parseFloat(weight) : null,
             dimensions,
             fragile,
@@ -354,6 +378,71 @@ function FreightPage() {
                   <p className="text-xs text-muted-foreground">Requer cuidados especiais no transporte</p>
                 </div>
                 <Switch checked={fragile} onCheckedChange={setFragile} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Local de Descarregamento</label>
+                <Input
+                  placeholder="Ex.: Portão traseiro, rua sem saída, acesso por rampa..."
+                  value={unloadingLocation}
+                  onChange={(e) => setUnloadingLocation(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Descreva as condições de acesso para que o cotador avalie o tipo de veículo adequado.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-1">
+                  <ImageIcon className="h-3.5 w-3.5" /> Foto do Local de Descarga
+                  <span className="text-muted-foreground font-normal text-[11px]">(opcional)</span>
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  id="cargo-photo"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    if (cargoPhotoPreview) URL.revokeObjectURL(cargoPhotoPreview);
+                    setCargoPhotoFile(file);
+                    setCargoPhotoPreview(file ? URL.createObjectURL(file) : null);
+                  }}
+                />
+                <label
+                  htmlFor="cargo-photo"
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg border-2 border-dashed p-3 cursor-pointer transition-colors",
+                    cargoPhotoFile ? "border-green-400 bg-green-50" : "border-border hover:border-muted-foreground/50",
+                  )}
+                >
+                  {cargoPhotoPreview ? (
+                    <>
+                      <img src={cargoPhotoPreview} alt="Local" className="h-14 w-14 rounded object-cover border" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-green-700 truncate">{cargoPhotoFile?.name}</p>
+                        <p className="text-[11px] text-muted-foreground">Clique para trocar</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex h-14 w-14 items-center justify-center rounded bg-muted shrink-0">
+                        <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium flex items-center gap-1">
+                          <Upload className="h-3.5 w-3.5" /> Enviar foto do local
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">JPG, PNG, WebP — máx. 5 MB</p>
+                      </div>
+                    </>
+                  )}
+                </label>
+                {cargoPhotoFile && (
+                  <Input
+                    placeholder="Descreva o que a foto mostra (acesso, rampa, portão...)"
+                    value={cargoPhotoDescription}
+                    onChange={(e) => setCargoPhotoDescription(e.target.value)}
+                  />
+                )}
               </div>
             </div>
           )}

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import {
   Package, Plus, ChevronRight, ChevronLeft, FileText, Truck,
-  Link2, X, CalendarIcon,
+  Link2, X, CalendarIcon, ImageIcon, Upload,
 } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -17,6 +17,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { TicketsTable } from "@/components/tickets-table";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 import { toast } from "sonner";
 import { createProductRequisitionClient, listProductRequisitionsClient } from "@/features/requisitions/client";
 import { friendlySupabaseError } from "@/lib/supabase-error";
@@ -68,6 +69,10 @@ function ProductsPage() {
   const [modelReference, setModelReference] = useState("");
   const [referenceLinks, setReferenceLinks] = useState<string[]>([""]);
   const [onlinePurchaseSuggestion, setOnlinePurchaseSuggestion] = useState("");
+
+  // Step 2 — photo (optional)
+  const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
+  const [productPhotoPreview, setProductPhotoPreview] = useState<string | null>(null);
 
   // Step 3 — Logistics
   const [deliveryDeadline, setDeliveryDeadline] = useState<Date | undefined>();
@@ -124,6 +129,8 @@ function ProductsPage() {
     setProductName(""); setDescription(""); setQuantity("");
     setTechnicalSpecs(""); setBrandPreference("");
     setModelReference(""); setReferenceLinks([""]); setOnlinePurchaseSuggestion("");
+    if (productPhotoPreview) URL.revokeObjectURL(productPhotoPreview);
+    setProductPhotoFile(null); setProductPhotoPreview(null);
     setDeliveryDeadline(undefined); setDeliveryLocation(""); setUrgencyLevel("");
     setJustification("");
   };
@@ -159,6 +166,17 @@ function ProductsPage() {
     setIsSubmitting(true);
 
     try {
+      let photoPath: string | undefined;
+      if (productPhotoFile) {
+        const ext = productPhotoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+        const path = `m1/${user?.id ?? "anon"}/${Date.now()}.${ext}`;
+        const { data: uploadData, error: uploadError } = await supabaseBrowser.storage
+          .from("travel-docs")
+          .upload(path, productPhotoFile, { upsert: true });
+        if (uploadError) console.warn("[photo upload]", uploadError.message);
+        else photoPath = uploadData.path;
+      }
+
       const result = await createProductRequisitionClient({
         productName,
         description,
@@ -168,6 +186,7 @@ function ProductsPage() {
         modelReference,
         referenceLinks: cleanedReferenceLinks,
         onlinePurchaseSuggestion,
+        photoPath,
         deliveryDeadline: deliveryDeadline.toISOString(),
         deliveryLocation,
         urgencyLevel: urgencyLevel as "LOW" | "MEDIUM" | "HIGH" | "URGENT",
@@ -344,6 +363,53 @@ function ProductsPage() {
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Sugestão de Compra Online</label>
                 <Textarea placeholder="URL da loja, produto específico, justificativa..." value={onlinePurchaseSuggestion} onChange={(e) => setOnlinePurchaseSuggestion(e.target.value)} rows={2} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-1">
+                  <ImageIcon className="h-3.5 w-3.5" /> Foto do Produto
+                  <span className="text-muted-foreground font-normal text-[11px]">(opcional)</span>
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  id="product-photo"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    if (productPhotoPreview) URL.revokeObjectURL(productPhotoPreview);
+                    setProductPhotoFile(file);
+                    setProductPhotoPreview(file ? URL.createObjectURL(file) : null);
+                  }}
+                />
+                <label
+                  htmlFor="product-photo"
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg border-2 border-dashed p-3 cursor-pointer transition-colors",
+                    productPhotoFile ? "border-green-400 bg-green-50" : "border-border hover:border-muted-foreground/50",
+                  )}
+                >
+                  {productPhotoPreview ? (
+                    <>
+                      <img src={productPhotoPreview} alt="Produto" className="h-14 w-14 rounded object-cover border" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-green-700 truncate">{productPhotoFile?.name}</p>
+                        <p className="text-[11px] text-muted-foreground">Clique para trocar</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex h-14 w-14 items-center justify-center rounded bg-muted shrink-0">
+                        <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium flex items-center gap-1">
+                          <Upload className="h-3.5 w-3.5" /> Enviar foto do produto
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">JPG, PNG, WebP — máx. 5 MB</p>
+                      </div>
+                    </>
+                  )}
+                </label>
               </div>
             </div>
           )}

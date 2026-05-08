@@ -12,9 +12,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { TicketsTable, type TicketRow } from "@/components/tickets-table";
@@ -32,7 +29,11 @@ const EQUIPMENT_CATEGORIES = [
   { value: "ESCAVADEIRA", label: "Escavadeira / Retroescavadeira" },
   { value: "GERADOR", label: "Gerador" },
   { value: "COMPRESSOR", label: "Compressor" },
-  { value: "CAMINHAO", label: "Caminhão" },
+  { value: "EMPILHADEIRA", label: "Empilhadeira" },
+  { value: "PALETEIRA_HIDRAULICA", label: "Paleteira Hidráulica" },
+  { value: "PALETEIRA_ELETRICA", label: "Paleteira Elétrica" },
+  { value: "CAMINHAO_MUNCK", label: "Caminhão Munck" },
+  { value: "CHAPA", label: "Chapa (Ajudante)" },
   { value: "VEICULO", label: "Veículo Leve" },
   { value: "OUTRO", label: "Outro" },
 ];
@@ -71,7 +72,7 @@ function RentalPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [equipmentName, setEquipmentName] = useState("");
-  const [category, setCategory] = useState("");
+  const [categories, setCategories] = useState<string[]>([]);
   const [specs, setSpecs] = useState("");
   const [quantity, setQuantity] = useState("1");
 
@@ -116,7 +117,8 @@ function RentalPage() {
       setDialogOpen(true);
       if (typeof s.step === 'number') setStep(s.step);
       if (typeof s.equipmentName === 'string') setEquipmentName(s.equipmentName);
-      if (typeof s.category === 'string') setCategory(s.category);
+      if (Array.isArray(s.categories)) setCategories(s.categories as string[]);
+      else if (typeof s.category === 'string' && s.category) setCategories([s.category as string]);
       if (typeof s.specs === 'string') setSpecs(s.specs);
       if (typeof s.quantity === 'string') setQuantity(s.quantity);
       if (typeof s.startDate === 'string') setStartDate(new Date(s.startDate));
@@ -133,19 +135,19 @@ function RentalPage() {
     if (!dialogOpen) return;
     try {
       sessionStorage.setItem(DIALOG_KEY, JSON.stringify({
-        open: true, step, equipmentName, category, specs, quantity,
+        open: true, step, equipmentName, categories, specs, quantity,
         startDate: startDate?.toISOString(),
         endDate: endDate?.toISOString(),
         deliveryLocation, urgencyLevel, justification,
       }));
     } catch { /* ignore */ }
-  }, [dialogOpen, step, equipmentName, category, specs, quantity,
+  }, [dialogOpen, step, equipmentName, categories, specs, quantity,
       startDate, endDate, deliveryLocation, urgencyLevel, justification]);
 
   const resetForm = () => {
     sessionStorage.removeItem(DIALOG_KEY);
     setStep(0);
-    setEquipmentName(""); setCategory(""); setSpecs(""); setQuantity("1");
+    setEquipmentName(""); setCategories([]); setSpecs(""); setQuantity("1");
     setStartDate(undefined); setEndDate(undefined); setDeliveryLocation("");
     setUrgencyLevel(""); setJustification("");
   };
@@ -153,7 +155,7 @@ function RentalPage() {
   const validateStep = (): boolean => {
     if (step === 0) {
       if (equipmentName.length < 3) { toast.error("Nome do equipamento deve ter pelo menos 3 caracteres."); return false; }
-      if (!category) { toast.error("Selecione a categoria."); return false; }
+      if (categories.length === 0) { toast.error("Selecione pelo menos uma categoria."); return false; }
       if (!quantity || parseInt(quantity) <= 0) { toast.error("Quantidade deve ser maior que 0."); return false; }
     }
     if (step === 1) {
@@ -193,7 +195,8 @@ function RentalPage() {
           requester_profile_id: user?.id ?? null,
           module_data: {
             equipment_name: equipmentName,
-            category,
+            categories,
+            category: categories[0] ?? "",
             specs,
             quantity: parseInt(quantity),
             start_date: startDate?.toISOString().slice(0, 10),
@@ -291,13 +294,28 @@ function RentalPage() {
                 <Input placeholder="Ex.: Andaime Tubular 5m x 2m" value={equipmentName} onChange={(e) => setEquipmentName(e.target.value)} maxLength={200} />
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Categoria *</label>
-                <Select value={category} onValueChange={setCategory}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    {EQUIPMENT_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <label className="text-sm font-medium">Categoria * (selecione uma ou mais)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {EQUIPMENT_CATEGORIES.map((c) => (
+                    <button
+                      key={c.value}
+                      type="button"
+                      onClick={() =>
+                        setCategories((prev) =>
+                          prev.includes(c.value) ? prev.filter((v) => v !== c.value) : [...prev, c.value],
+                        )
+                      }
+                      className={cn(
+                        "rounded-lg border-2 p-2.5 text-xs font-medium text-center transition-all",
+                        categories.includes(c.value)
+                          ? "border-vp-yellow bg-amber-50 text-vp-yellow-dark"
+                          : "border-border hover:border-muted-foreground/40",
+                      )}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Especificações Técnicas</label>

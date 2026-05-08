@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
 import {
   Plane, Plus, ChevronRight, ChevronLeft, MapPin, Hotel,
-  CalendarIcon, Target, AlertTriangle,
+  CalendarIcon, Target, AlertTriangle, Users, UserPlus, Trash2, Upload, ImageIcon,
 } from "lucide-react";
 import { format, differenceInCalendarDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -25,6 +25,30 @@ import { friendlySupabaseError } from "@/lib/supabase-error";
 import { useAuth } from "@/features/auth/auth-context";
 import { toast } from "sonner";
 import { notifyVpClickClient } from "@/features/vpclick/client";
+
+interface Traveler {
+  id: string;
+  fullName: string;
+  docType: "CPF" | "RG" | "CNH";
+  docNumber: string;
+  docPhotoFile: File | null;
+  docPhotoPreview: string | null;
+}
+
+function makeTraveler(): Traveler {
+  return {
+    id: crypto.randomUUID(),
+    fullName: "",
+    docType: "CPF",
+    docNumber: "",
+    docPhotoFile: null,
+    docPhotoPreview: null,
+  };
+}
+
+function isFullName(name: string): boolean {
+  return name.trim().split(/\s+/).filter(Boolean).length >= 2;
+}
 
 const TRANSPORT_MODES = [
   { value: "AVIAO", label: "Avião" },
@@ -57,7 +81,7 @@ export const Route = createFileRoute("/trips")({
   component: TripsPage,
 });
 
-const DIALOG_KEY = 'vpreq_m2';
+const DIALOG_KEY = "vpreq_m2";
 
 function TripsPage() {
   const { session, profile, user } = useAuth();
@@ -66,7 +90,7 @@ function TripsPage() {
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [travelerName, setTravelerName] = useState("");
+  const [travelers, setTravelers] = useState<Traveler[]>([makeTraveler()]);
   const [originCity, setOriginCity] = useState("");
   const [destinationCity, setDestinationCity] = useState("");
   const [departureDate, setDepartureDate] = useState<Date | undefined>();
@@ -91,6 +115,30 @@ function TripsPage() {
     return differenceInCalendarDays(departureDate, new Date()) >= 5;
   }, [departureDate]);
 
+  const updateTraveler = (id: string, field: keyof Omit<Traveler, "id">, value: unknown) => {
+    setTravelers((prev) => prev.map((t) => (t.id === id ? { ...t, [field]: value } : t)));
+  };
+
+  const handlePhotoChange = (id: string, file: File | null) => {
+    setTravelers((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        if (t.docPhotoPreview) URL.revokeObjectURL(t.docPhotoPreview);
+        return { ...t, docPhotoFile: file, docPhotoPreview: file ? URL.createObjectURL(file) : null };
+      }),
+    );
+  };
+
+  const addTraveler = () => setTravelers((prev) => [...prev, makeTraveler()]);
+
+  const removeTraveler = (id: string) => {
+    setTravelers((prev) => {
+      const target = prev.find((t) => t.id === id);
+      if (target?.docPhotoPreview) URL.revokeObjectURL(target.docPhotoPreview);
+      return prev.filter((t) => t.id !== id);
+    });
+  };
+
   const loadTickets = async () => {
     if (!session) return;
     const { data } = await supabaseBrowser
@@ -99,14 +147,16 @@ function TripsPage() {
       .eq("module", "M2")
       .order("created_at", { ascending: false })
       .limit(20);
-    setTickets((data ?? []).map((item) => ({
-      id: item.ticket_number,
-      title: item.title,
-      requester: item.requester_name,
-      urgency: item.urgency as TicketRow["urgency"],
-      status: item.status as TicketRow["status"],
-      date: new Date(item.created_at).toLocaleDateString("pt-BR"),
-    })));
+    setTickets(
+      (data ?? []).map((item) => ({
+        id: item.ticket_number,
+        title: item.title,
+        requester: item.requester_name,
+        urgency: item.urgency as TicketRow["urgency"],
+        status: item.status as TicketRow["status"],
+        date: new Date(item.created_at).toLocaleDateString("pt-BR"),
+      })),
+    );
   };
 
   useEffect(() => {
@@ -116,119 +166,229 @@ function TripsPage() {
       const s = JSON.parse(saved) as Record<string, unknown>;
       if (!s.open) return;
       setDialogOpen(true);
-      if (typeof s.step === 'number') setStep(s.step);
-      if (typeof s.travelerName === 'string') setTravelerName(s.travelerName);
-      if (typeof s.originCity === 'string') setOriginCity(s.originCity);
-      if (typeof s.destinationCity === 'string') setDestinationCity(s.destinationCity);
-      if (typeof s.departureDate === 'string') setDepartureDate(new Date(s.departureDate));
-      if (typeof s.returnDate === 'string') setReturnDate(new Date(s.returnDate));
-      if (typeof s.transportMode === 'string') setTransportMode(s.transportMode);
-      if (typeof s.needsHotel === 'boolean') setNeedsHotel(s.needsHotel);
-      if (typeof s.hotelNights === 'string') setHotelNights(s.hotelNights);
-      if (typeof s.needsLocalCar === 'boolean') setNeedsLocalCar(s.needsLocalCar);
+      if (typeof s.step === "number") setStep(s.step);
+      if (Array.isArray(s.travelers) && s.travelers.length > 0) {
+        setTravelers(
+          (s.travelers as Omit<Traveler, "docPhotoFile" | "docPhotoPreview">[]).map((t) => ({
+            ...t,
+            docPhotoFile: null,
+            docPhotoPreview: null,
+          })),
+        );
+      } else if (typeof s.travelerName === "string" && s.travelerName) {
+        setTravelers([{ ...makeTraveler(), fullName: s.travelerName as string }]);
+      }
+      if (typeof s.originCity === "string") setOriginCity(s.originCity);
+      if (typeof s.destinationCity === "string") setDestinationCity(s.destinationCity);
+      if (typeof s.departureDate === "string") setDepartureDate(new Date(s.departureDate));
+      if (typeof s.returnDate === "string") setReturnDate(new Date(s.returnDate));
+      if (typeof s.transportMode === "string") setTransportMode(s.transportMode);
+      if (typeof s.needsHotel === "boolean") setNeedsHotel(s.needsHotel);
+      if (typeof s.hotelNights === "string") setHotelNights(s.hotelNights);
+      if (typeof s.needsLocalCar === "boolean") setNeedsLocalCar(s.needsLocalCar);
       if (Array.isArray(s.purposes)) setPurposes(s.purposes as string[]);
-      if (typeof s.justification === 'string') setJustification(s.justification);
-      if (typeof s.shortNoticeJustification === 'string') setShortNoticeJustification(s.shortNoticeJustification);
-    } catch { /* ignore */ }
+      if (typeof s.justification === "string") setJustification(s.justification);
+      if (typeof s.shortNoticeJustification === "string")
+        setShortNoticeJustification(s.shortNoticeJustification);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  useEffect(() => { void loadTickets(); }, [session]);
+  useEffect(() => {
+    void loadTickets();
+  }, [session]);
 
   useEffect(() => {
     if (!dialogOpen) return;
     try {
-      sessionStorage.setItem(DIALOG_KEY, JSON.stringify({
-        open: true, step, travelerName, originCity, destinationCity,
-        departureDate: departureDate?.toISOString(),
-        returnDate: returnDate?.toISOString(),
-        transportMode, needsHotel, hotelNights, needsLocalCar,
-        purposes, justification, shortNoticeJustification,
-      }));
-    } catch { /* ignore */ }
-  }, [dialogOpen, step, travelerName, originCity, destinationCity, departureDate,
-      returnDate, transportMode, needsHotel, hotelNights, needsLocalCar,
-      purposes, justification, shortNoticeJustification]);
+      const travelersData = travelers.map(
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        ({ docPhotoFile, docPhotoPreview, ...rest }) => rest,
+      );
+      sessionStorage.setItem(
+        DIALOG_KEY,
+        JSON.stringify({
+          open: true,
+          step,
+          travelers: travelersData,
+          originCity,
+          destinationCity,
+          departureDate: departureDate?.toISOString(),
+          returnDate: returnDate?.toISOString(),
+          transportMode,
+          needsHotel,
+          hotelNights,
+          needsLocalCar,
+          purposes,
+          justification,
+          shortNoticeJustification,
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [
+    dialogOpen, step, travelers, originCity, destinationCity, departureDate,
+    returnDate, transportMode, needsHotel, hotelNights, needsLocalCar,
+    purposes, justification, shortNoticeJustification,
+  ]);
 
   const resetForm = () => {
     sessionStorage.removeItem(DIALOG_KEY);
     setStep(0);
-    setTravelerName(""); setOriginCity(""); setDestinationCity("");
-    setDepartureDate(undefined); setReturnDate(undefined); setTransportMode("");
-    setNeedsHotel(false); setHotelNights(""); setNeedsLocalCar(false);
-    setPurposes([]); setJustification(""); setShortNoticeJustification("");
+    travelers.forEach((t) => {
+      if (t.docPhotoPreview) URL.revokeObjectURL(t.docPhotoPreview);
+    });
+    setTravelers([makeTraveler()]);
+    setOriginCity("");
+    setDestinationCity("");
+    setDepartureDate(undefined);
+    setReturnDate(undefined);
+    setTransportMode("");
+    setNeedsHotel(false);
+    setHotelNights("");
+    setNeedsLocalCar(false);
+    setPurposes([]);
+    setJustification("");
+    setShortNoticeJustification("");
   };
 
   const togglePurpose = (val: string) => {
     setPurposes((prev) =>
-      prev.includes(val) ? prev.filter((p) => p !== val) : [...prev, val]
+      prev.includes(val) ? prev.filter((p) => p !== val) : [...prev, val],
     );
   };
 
   const validateStep = (): boolean => {
     if (step === 0) {
-      if (!travelerName.trim()) { toast.error("Informe o nome do viajante."); return false; }
-      if (!originCity.trim()) { toast.error("Informe a cidade de origem."); return false; }
-      if (!destinationCity.trim()) { toast.error("Informe a cidade de destino."); return false; }
-      if (!departureDate) { toast.error("Informe a data de partida."); return false; }
-      if (!returnDate) { toast.error("Informe a data de retorno."); return false; }
-      // Permite retorno no mesmo dia (viagem de ida e volta no dia)
-      if (returnDate < departureDate) { toast.error("Data de retorno não pode ser anterior à partida."); return false; }
-      if (!transportMode) { toast.error("Selecione o meio de transporte."); return false; }
+      for (let i = 0; i < travelers.length; i++) {
+        const t = travelers[i];
+        const label = travelers.length > 1 ? `Viajante ${i + 1}` : "Viajante";
+        if (!isFullName(t.fullName)) {
+          toast.error(`${label}: informe nome completo (nome e sobrenome).`);
+          return false;
+        }
+        if (!t.docNumber.trim()) {
+          toast.error(`${label}: informe o número do ${t.docType}.`);
+          return false;
+        }
+        if (!t.docPhotoFile) {
+          toast.error(`${label}: foto do documento é obrigatória.`);
+          return false;
+        }
+      }
+      if (!originCity.trim()) {
+        toast.error("Informe a cidade de origem.");
+        return false;
+      }
+      if (!destinationCity.trim()) {
+        toast.error("Informe a cidade de destino.");
+        return false;
+      }
+      if (!departureDate) {
+        toast.error("Informe a data de partida.");
+        return false;
+      }
+      if (!returnDate) {
+        toast.error("Informe a data de retorno.");
+        return false;
+      }
+      if (returnDate < departureDate) {
+        toast.error("Data de retorno não pode ser anterior à partida.");
+        return false;
+      }
+      if (!transportMode) {
+        toast.error("Selecione o meio de transporte.");
+        return false;
+      }
     }
     if (step === 1) {
       if (needsHotel && (!hotelNights || parseInt(hotelNights) <= 0)) {
-        toast.error("Informe o número de noites de hotel."); return false;
+        toast.error("Informe o número de noites de hotel.");
+        return false;
       }
     }
     if (step === 2) {
-      if (purposes.length === 0) { toast.error("Selecione pelo menos um objetivo."); return false; }
-      if (justification.length < 20) { toast.error("Justificativa deve ter pelo menos 20 caracteres."); return false; }
+      if (purposes.length === 0) {
+        toast.error("Selecione pelo menos um objetivo.");
+        return false;
+      }
+      if (justification.length < 20) {
+        toast.error("Justificativa deve ter pelo menos 20 caracteres.");
+        return false;
+      }
       if (!isAdvancedNotice && shortNoticeJustification.length < 50) {
-        toast.error("Justificativa de urgência deve ter pelo menos 50 caracteres."); return false;
+        toast.error("Justificativa de urgência deve ter pelo menos 50 caracteres.");
+        return false;
       }
     }
     return true;
   };
 
-  const handleNext = () => { if (validateStep()) { toast.dismiss(); setStep((s) => Math.min(s + 1, STEPS.length - 1)); } };
+  const handleNext = () => {
+    if (validateStep()) {
+      toast.dismiss();
+      setStep((s) => Math.min(s + 1, STEPS.length - 1));
+    }
+  };
 
   const handleSubmit = async () => {
     if (!validateStep()) return;
     setIsSubmitting(true);
     try {
+      const travelersWithPaths = await Promise.all(
+        travelers.map(async (t, i) => {
+          let photoPath: string | null = null;
+          if (t.docPhotoFile) {
+            const ext = t.docPhotoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+            const path = `${user?.id ?? "anon"}/${Date.now()}_${i}.${ext}`;
+            const { data: uploadData, error: uploadError } = await supabaseBrowser.storage
+              .from("travel-docs")
+              .upload(path, t.docPhotoFile, { upsert: true });
+            if (uploadError) throw new Error(`Foto do viajante ${i + 1}: ${uploadError.message}`);
+            photoPath = uploadData.path;
+          }
+          return {
+            full_name: t.fullName.trim(),
+            doc_type: t.docType,
+            doc_number: t.docNumber.trim(),
+            doc_photo_path: photoPath,
+          };
+        }),
+      );
+
       const urgency = !isAdvancedNotice ? "URGENT" : durationDays > 7 ? "HIGH" : "MEDIUM";
-      const { error } = await supabaseBrowser
-        .from("requisitions")
-        .insert({
-          module: "M2",
-          title: `Viagem ${originCity} → ${destinationCity}`,
-          description: justification,
-          justification,
-          urgency,
-          desired_date: departureDate?.toISOString().slice(0, 10) ?? null,
-          requester_name: profile?.full_name || user?.email || "Usuário VP",
-          requester_email: profile?.email || user?.email || "",
-          requester_department: profile?.department || "Não informado",
-          requester_profile_id: user?.id ?? null,
-          module_data: {
-            traveler_name: travelerName,
-            origin_city: originCity,
-            destination_city: destinationCity,
-            departure_date: departureDate?.toISOString().slice(0, 10),
-            return_date: returnDate?.toISOString().slice(0, 10),
-            duration_days: durationDays,
-            transport_mode: transportMode,
-            needs_hotel: needsHotel,
-            hotel_nights: hotelNights ? parseInt(hotelNights) : null,
-            needs_local_car: needsLocalCar,
-            purposes,
-            short_notice_justification: shortNoticeJustification || null,
-          },
-        });
+      const { error } = await supabaseBrowser.from("requisitions").insert({
+        module: "M2",
+        title: `Viagem ${originCity} → ${destinationCity}`,
+        description: justification,
+        justification,
+        urgency,
+        desired_date: departureDate?.toISOString().slice(0, 10) ?? null,
+        requester_name: profile?.full_name || user?.email || "Usuário VP",
+        requester_email: profile?.email || user?.email || "",
+        requester_department: profile?.department || "Não informado",
+        requester_profile_id: user?.id ?? null,
+        module_data: {
+          traveler_name: travelersWithPaths[0]?.full_name ?? "",
+          travelers: travelersWithPaths,
+          origin_city: originCity,
+          destination_city: destinationCity,
+          departure_date: departureDate?.toISOString().slice(0, 10),
+          return_date: returnDate?.toISOString().slice(0, 10),
+          duration_days: durationDays,
+          transport_mode: transportMode,
+          needs_hotel: needsHotel,
+          hotel_nights: hotelNights ? parseInt(hotelNights) : null,
+          needs_local_car: needsLocalCar,
+          purposes,
+          short_notice_justification: shortNoticeJustification || null,
+        },
+      });
 
       if (error) throw error;
 
-      // SELECT separado para não acionar policy de SELECT durante INSERT
       const { data: created } = await supabaseBrowser
         .from("requisitions")
         .select("id,ticket_number")
@@ -238,15 +398,16 @@ function TripsPage() {
         .limit(1)
         .maybeSingle();
 
-      // Insere itens de viagem para cotação individual por item
       if (created?.id) {
         const itemsPayload = [
-          { requisition_id: created.id, item_type: 'voo', sort_order: 0 },
-          ...(needsHotel ? [{ requisition_id: created.id, item_type: 'hotel', sort_order: 1 }] : []),
-          ...(needsLocalCar ? [{ requisition_id: created.id, item_type: 'carro', sort_order: 2 }] : []),
+          { requisition_id: created.id, item_type: "voo", sort_order: 0 },
+          ...(needsHotel ? [{ requisition_id: created.id, item_type: "hotel", sort_order: 1 }] : []),
+          ...(needsLocalCar ? [{ requisition_id: created.id, item_type: "carro", sort_order: 2 }] : []),
         ];
-        const { error: itemsError } = await supabaseBrowser.from('requisition_items').insert(itemsPayload);
-        if (itemsError) console.warn('[requisition_items]', itemsError.message);
+        const { error: itemsError } = await supabaseBrowser
+          .from("requisition_items")
+          .insert(itemsPayload);
+        if (itemsError) console.warn("[requisition_items]", itemsError.message);
       }
 
       toast.success("Requisição de viagem criada!", { description: created?.ticket_number ?? "" });
@@ -304,11 +465,19 @@ function TripsPage() {
               const active = i === step;
               const done = i < step;
               return (
-                <button key={s.label} type="button" onClick={() => { if (i < step) setStep(i); }}
-                  className={cn("flex flex-col items-center gap-1 text-[10px] font-medium transition-colors flex-1",
-                    active ? "text-vp-yellow-dark" : done ? "text-green-600" : "text-muted-foreground")}>
-                  <div className={cn("flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors",
-                    active ? "border-vp-yellow bg-amber-50" : done ? "border-green-500 bg-green-50" : "border-border")}>
+                <button
+                  key={s.label}
+                  type="button"
+                  onClick={() => { if (i < step) setStep(i); }}
+                  className={cn(
+                    "flex flex-col items-center gap-1 text-[10px] font-medium transition-colors flex-1",
+                    active ? "text-vp-yellow-dark" : done ? "text-green-600" : "text-muted-foreground",
+                  )}
+                >
+                  <div className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors",
+                    active ? "border-vp-yellow bg-amber-50" : done ? "border-green-500 bg-green-50" : "border-border",
+                  )}>
                     <Icon className="h-4 w-4" />
                   </div>
                   {s.label}
@@ -319,18 +488,162 @@ function TripsPage() {
 
           {step === 0 && (
             <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Nome do Viajante *</label>
-                <Input placeholder="Nome completo" value={travelerName} onChange={(e) => setTravelerName(e.target.value)} />
+              {/* Travelers */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Viajantes</span>
+                  </div>
+                  <Button variant="outline" size="sm" type="button" onClick={addTraveler} className="h-7 text-xs gap-1">
+                    <UserPlus className="h-3.5 w-3.5" /> Adicionar
+                  </Button>
+                </div>
+
+                {travelers.map((t, i) => (
+                  <div key={t.id} className="rounded-lg border p-3 space-y-3 bg-muted/20">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        {travelers.length > 1 ? `Viajante ${i + 1}` : "Viajante"}
+                      </span>
+                      {travelers.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeTraveler(t.id)}
+                          className="text-muted-foreground hover:text-destructive transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium">Nome Completo *</label>
+                      <Input
+                        placeholder="Nome e sobrenome"
+                        value={t.fullName}
+                        onChange={(e) => updateTraveler(t.id, "fullName", e.target.value)}
+                        className={cn(
+                          t.fullName.trim() && !isFullName(t.fullName) ? "border-orange-400" : "",
+                        )}
+                      />
+                      {t.fullName.trim() && !isFullName(t.fullName) && (
+                        <p className="text-[11px] text-orange-600">Informe nome e sobrenome.</p>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium">Tipo de Documento *</label>
+                        <div className="flex gap-1">
+                          {(["CPF", "RG", "CNH"] as const).map((dtype) => (
+                            <button
+                              key={dtype}
+                              type="button"
+                              onClick={() => updateTraveler(t.id, "docType", dtype)}
+                              className={cn(
+                                "flex-1 rounded border py-1.5 text-xs font-medium transition-colors",
+                                t.docType === dtype
+                                  ? "border-vp-yellow bg-amber-50 text-vp-yellow-dark"
+                                  : "border-border hover:border-muted-foreground/50",
+                              )}
+                            >
+                              {dtype}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium">Número do {t.docType} *</label>
+                        <Input
+                          placeholder={
+                            t.docType === "CPF"
+                              ? "000.000.000-00"
+                              : t.docType === "RG"
+                              ? "00.000.000-0"
+                              : "00000000000"
+                          }
+                          value={t.docNumber}
+                          onChange={(e) => updateTraveler(t.id, "docNumber", e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium flex items-center gap-1">
+                        Foto do Documento *
+                        <span className="text-orange-600 font-normal text-[11px]">(obrigatório)</span>
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        id={`doc-photo-${t.id}`}
+                        onChange={(e) => handlePhotoChange(t.id, e.target.files?.[0] ?? null)}
+                      />
+                      <label
+                        htmlFor={`doc-photo-${t.id}`}
+                        className={cn(
+                          "flex items-center gap-3 rounded-lg border-2 border-dashed p-3 cursor-pointer transition-colors",
+                          t.docPhotoFile
+                            ? "border-green-400 bg-green-50"
+                            : "border-border hover:border-muted-foreground/50",
+                        )}
+                      >
+                        {t.docPhotoPreview ? (
+                          <>
+                            <img
+                              src={t.docPhotoPreview}
+                              alt="Documento"
+                              className="h-14 w-14 rounded object-cover border"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-green-700 truncate">
+                                {t.docPhotoFile?.name}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">Clique para trocar</p>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex h-14 w-14 items-center justify-center rounded bg-muted shrink-0">
+                              <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-medium flex items-center gap-1">
+                                <Upload className="h-3.5 w-3.5" /> Enviar foto do documento
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">
+                                JPG, PNG, WebP — máx. 5 MB
+                              </p>
+                            </div>
+                          </>
+                        )}
+                      </label>
+                    </div>
+                  </div>
+                ))}
               </div>
+
+              <div className="border-t" />
+
+              {/* Route */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Cidade de Origem *</label>
-                  <Input placeholder="Ex.: São Paulo, SP" value={originCity} onChange={(e) => setOriginCity(e.target.value)} />
+                  <Input
+                    placeholder="Ex.: São Paulo, SP"
+                    value={originCity}
+                    onChange={(e) => setOriginCity(e.target.value)}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Cidade de Destino *</label>
-                  <Input placeholder="Ex.: Curitiba, PR" value={destinationCity} onChange={(e) => setDestinationCity(e.target.value)} />
+                  <Input
+                    placeholder="Ex.: Curitiba, PR"
+                    value={destinationCity}
+                    onChange={(e) => setDestinationCity(e.target.value)}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -338,18 +651,27 @@ function TripsPage() {
                   <label className="text-sm font-medium">Data de Partida *</label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !departureDate && "text-muted-foreground")}>
+                      <Button
+                        variant="outline"
+                        className={cn("w-full justify-start text-left font-normal", !departureDate && "text-muted-foreground")}
+                      >
                         <CalendarIcon className="mr-2 h-4 w-4" />
                         {departureDate ? format(departureDate, "dd/MM/yyyy", { locale: ptBR }) : "Selecione"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={departureDate} onSelect={(d) => {
-                        setDepartureDate(d);
-                        // Se retorno já escolhido e ficou antes da nova partida, limpa
-                        if (returnDate && d && returnDate < d) setReturnDate(undefined);
-                      }}
-                        disabled={(d) => d < new Date()} initialFocus className="p-3 pointer-events-auto" locale={ptBR} />
+                      <Calendar
+                        mode="single"
+                        selected={departureDate}
+                        onSelect={(d) => {
+                          setDepartureDate(d);
+                          if (returnDate && d && returnDate < d) setReturnDate(undefined);
+                        }}
+                        disabled={(d) => d < new Date()}
+                        initialFocus
+                        className="p-3 pointer-events-auto"
+                        locale={ptBR}
+                      />
                     </PopoverContent>
                   </Popover>
                 </div>
@@ -357,34 +679,50 @@ function TripsPage() {
                   <label className="text-sm font-medium">Data de Retorno *</label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !returnDate && "text-muted-foreground")}>
+                      <Button
+                        variant="outline"
+                        className={cn("w-full justify-start text-left font-normal", !returnDate && "text-muted-foreground")}
+                      >
                         <CalendarIcon className="mr-2 h-4 w-4" />
                         {returnDate ? format(returnDate, "dd/MM/yyyy", { locale: ptBR }) : "Selecione"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      {/* Permite mesmo dia de retorno (ida e volta) */}
-                      <Calendar mode="single" selected={returnDate} onSelect={setReturnDate}
-                        disabled={(d) => d < (departureDate ?? new Date())} initialFocus className="p-3 pointer-events-auto" locale={ptBR} />
+                      <Calendar
+                        mode="single"
+                        selected={returnDate}
+                        onSelect={setReturnDate}
+                        disabled={(d) => d < (departureDate ?? new Date())}
+                        initialFocus
+                        className="p-3 pointer-events-auto"
+                        locale={ptBR}
+                      />
                     </PopoverContent>
                   </Popover>
                 </div>
               </div>
               {departureDate && returnDate && (
                 <p className="text-sm text-muted-foreground">
-                  Duração: <span className="font-semibold text-foreground">{durationDays === 0 ? "ida e volta no mesmo dia" : `${durationDays} dia(s)`}</span>
+                  Duração:{" "}
+                  <span className="font-semibold text-foreground">
+                    {durationDays === 0 ? "ida e volta no mesmo dia" : `${durationDays} dia(s)`}
+                  </span>
                   {!isAdvancedNotice && (
-                    <span className="ml-2 text-orange-600 font-medium">⚠ menos de 5 dias de antecedência</span>
+                    <span className="ml-2 text-orange-600 font-medium">
+                      ⚠ menos de 5 dias de antecedência
+                    </span>
                   )}
                 </p>
               )}
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Meio de Transporte *</label>
                 <Select value={transportMode} onValueChange={setTransportMode}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
                   <SelectContent>
-                    {TRANSPORT_MODES.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    {TRANSPORT_MODES.map((mode) => (
+                      <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -404,7 +742,13 @@ function TripsPage() {
               {needsHotel && (
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Noites de Hotel *</label>
-                  <Input type="number" min="1" placeholder="0" value={hotelNights} onChange={(e) => setHotelNights(e.target.value)} />
+                  <Input
+                    type="number"
+                    min="1"
+                    placeholder="0"
+                    value={hotelNights}
+                    onChange={(e) => setHotelNights(e.target.value)}
+                  />
                 </div>
               )}
               <div className="flex items-center justify-between rounded-lg border p-4">
@@ -420,12 +764,22 @@ function TripsPage() {
           {step === 2 && (
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Objetivo da Viagem * (selecione um ou mais)</label>
+                <label className="text-sm font-medium">
+                  Objetivo da Viagem * (selecione um ou mais)
+                </label>
                 <div className="grid grid-cols-2 gap-2">
                   {PURPOSES.map((p) => (
-                    <button key={p.value} type="button" onClick={() => togglePurpose(p.value)}
-                      className={cn("rounded-lg border-2 p-2.5 text-xs font-medium text-center transition-all",
-                        purposes.includes(p.value) ? "border-vp-yellow bg-amber-50 text-vp-yellow-dark" : "border-border hover:border-muted-foreground/40")}>
+                    <button
+                      key={p.value}
+                      type="button"
+                      onClick={() => togglePurpose(p.value)}
+                      className={cn(
+                        "rounded-lg border-2 p-2.5 text-xs font-medium text-center transition-all",
+                        purposes.includes(p.value)
+                          ? "border-vp-yellow bg-amber-50 text-vp-yellow-dark"
+                          : "border-border hover:border-muted-foreground/40",
+                      )}
+                    >
                       {p.label}
                     </button>
                   ))}
@@ -433,7 +787,13 @@ function TripsPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Justificativa *</label>
-                <Textarea placeholder="Descreva o motivo da viagem..." value={justification} onChange={(e) => setJustification(e.target.value)} rows={3} maxLength={500} />
+                <Textarea
+                  placeholder="Descreva o motivo da viagem..."
+                  value={justification}
+                  onChange={(e) => setJustification(e.target.value)}
+                  rows={3}
+                  maxLength={500}
+                />
                 <p className="text-[11px] text-muted-foreground">{justification.length}/500</p>
               </div>
               {!isAdvancedNotice && (
@@ -441,24 +801,40 @@ function TripsPage() {
                   <label className="text-sm font-medium flex items-center gap-1 text-orange-700">
                     <AlertTriangle className="h-4 w-4" /> Justificativa de Urgência *
                   </label>
-                  <p className="text-xs text-orange-600">Viagem com menos de 5 dias de antecedência requer justificativa detalhada (mín. 50 caracteres).</p>
-                  <Textarea placeholder="Explique a urgência..." value={shortNoticeJustification}
-                    onChange={(e) => setShortNoticeJustification(e.target.value)} rows={3} maxLength={500} />
-                  <p className="text-[11px] text-muted-foreground">{shortNoticeJustification.length}/500</p>
+                  <p className="text-xs text-orange-600">
+                    Viagem com menos de 5 dias de antecedência requer justificativa detalhada (mín. 50
+                    caracteres).
+                  </p>
+                  <Textarea
+                    placeholder="Explique a urgência..."
+                    value={shortNoticeJustification}
+                    onChange={(e) => setShortNoticeJustification(e.target.value)}
+                    rows={3}
+                    maxLength={500}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {shortNoticeJustification.length}/500
+                  </p>
                 </div>
               )}
             </div>
           )}
 
           <DialogFooter className="flex justify-between sm:justify-between">
-            <Button variant="outline" onClick={() => step === 0 ? setDialogOpen(false) : setStep(step - 1)}>
+            <Button
+              variant="outline"
+              onClick={() => (step === 0 ? setDialogOpen(false) : setStep(step - 1))}
+            >
               {step === 0 ? "Cancelar" : <><ChevronLeft className="h-4 w-4 mr-1" /> Voltar</>}
             </Button>
             {step < STEPS.length - 1 ? (
-              <Button variant="vp" onClick={handleNext}>Próximo <ChevronRight className="h-4 w-4 ml-1" /></Button>
+              <Button variant="vp" onClick={handleNext}>
+                Próximo <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
             ) : (
               <Button variant="vp" onClick={() => void handleSubmit()} disabled={isSubmitting}>
-                <Plane className="h-4 w-4 mr-1" /> {isSubmitting ? "Enviando..." : "Enviar Requisição"}
+                <Plane className="h-4 w-4 mr-1" />
+                {isSubmitting ? "Enviando..." : "Enviar Requisição"}
               </Button>
             )}
           </DialogFooter>

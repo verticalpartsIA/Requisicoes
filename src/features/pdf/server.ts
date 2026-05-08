@@ -29,19 +29,19 @@ async function db<T>(path: string): Promise<T | null> {
 
 // ─── Supabase Storage → Base64 data URI (para embutir no HTML do PDF) ───────
 
+const MAX_IMAGE_BYTES = 400_000; // 400KB — acima disso o HTML fica grande demais para reportgen.io
+
 async function fetchImageAsDataUri(bucket: string, path: string): Promise<string | null> {
   const key = SUPA_KEY();
   if (!key || !path) return null;
   try {
     const resp = await fetch(`${SUPA_URL()}/storage/v1/object/${bucket}/${path}`, {
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-      },
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
     });
     if (!resp.ok) return null;
     const ct = resp.headers.get("content-type") ?? "image/jpeg";
     const buf = await resp.arrayBuffer();
+    if (buf.byteLength > MAX_IMAGE_BYTES) return null; // pula imagens muito grandes
     const b64 = Buffer.from(buf).toString("base64");
     return `data:${ct};base64,${b64}`;
   } catch { return null; }

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite dev",
-    "build": "NODE_OPTIONS=--max-old-space-size=2048 vite build",
+    "build": "sh -c 'ENV=/home/u969661049/domains/vprequisicoes.vpsistema.com/public_html/.builds/config/.env; [ -f \"$ENV\" ] && set -a && . \"$ENV\" && set +a; NODE_OPTIONS=--max-old-space-size=2048 npx vite build'",
     "build:dev": "vite build --mode development",
     "start": "node server.js",
     "preview": "vite preview",

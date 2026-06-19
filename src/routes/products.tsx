@@ -4,7 +4,7 @@ import { useRouter } from "@tanstack/react-router";
 import {
   Package, Plus, ChevronRight, ChevronLeft, Truck,
   Link2, X, CalendarIcon, ImageIcon, Upload, Pencil, Trash2,
-  CheckCircle2, ChevronDown, ChevronUp, Loader2,
+  CheckCircle2, ChevronDown, ChevronUp, Loader2, Tag,
 } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -115,6 +115,9 @@ function ProductsPage() {
   const [draftPhotoPreview, setDraftPhotoPreview] = useState<string | null>(null);
   const [showDraftTechnical, setShowDraftTechnical] = useState(false);
 
+  // Triagem (tela inicial antes do stepper)
+  const [triageCompleted, setTriageCompleted] = useState(false);
+
   // Revenda
   const [isRevenda, setIsRevenda] = useState<boolean | null>(null);
   const [pedidoNum, setPedidoNum] = useState("");
@@ -138,6 +141,7 @@ function ProductsPage() {
       if (Array.isArray(s.items)) {
         setItems((s.items as ItemDraft[]).map((i) => ({ ...i, photo_file: null, photo_preview: null })));
       }
+      if (typeof s.triageCompleted === "boolean") setTriageCompleted(s.triageCompleted);
       if (typeof s.isRevenda === "boolean") setIsRevenda(s.isRevenda);
       if (s.isRevenda === null) setIsRevenda(null);
       if (typeof s.pedidoNum === "string") setPedidoNum(s.pedidoNum);
@@ -210,6 +214,7 @@ function ProductsPage() {
       setUrgencyLevel((data.urgency as string) ?? "");
       setJustification((data.justification as string) ?? "");
       if (data.desired_date) setDeliveryDeadline(new Date(data.desired_date as string));
+      setTriageCompleted(true); // edição pula triagem
       setStep(0);
       setDialogOpen(true);
     })();
@@ -220,7 +225,7 @@ function ProductsPage() {
     try {
       const serializableItems = items.map((i) => ({ ...i, photo_file: null, photo_preview: null }));
       sessionStorage.setItem(DIALOG_KEY, JSON.stringify({
-        open: true, step, items: serializableItems, isRevenda, pedidoNum,
+        open: true, step, triageCompleted, items: serializableItems, isRevenda, pedidoNum,
         deliveryDeadline: deliveryDeadline?.toISOString(),
         deliveryLocation, urgencyLevel, justification,
       }));
@@ -230,6 +235,7 @@ function ProductsPage() {
   const resetForm = () => {
     sessionStorage.removeItem(DIALOG_KEY);
     setStep(0);
+    setTriageCompleted(false);
     setItems([]);
     setShowAddForm(false);
     setEditingIdx(null);
@@ -334,10 +340,6 @@ function ProductsPage() {
       if (items.length === 0) { toast.error("Adicione pelo menos um produto."); return false; }
       if (showAddForm || editingIdx !== null) {
         toast.error("Salve ou cancele o produto atual antes de avançar."); return false;
-      }
-      if (isRevenda === null) { toast.error("Informe se os produtos são para revenda."); return false; }
-      if (isRevenda === true && !omieResult) {
-        toast.error("Verifique o número do pedido de venda no Omie."); return false;
       }
     }
     if (step === 1) {
@@ -503,6 +505,91 @@ function ProductsPage() {
             </DialogDescription>
           </DialogHeader>
 
+          {/* ── Triagem (apenas nova requisição, antes do stepper) ── */}
+          {!editMode && !triageCompleted && (
+            <>
+              <div className="space-y-5 py-2">
+                <p className="text-sm text-muted-foreground text-center">Selecione o tipo de requisição para começar:</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => { setIsRevenda(false); setOmieResult(null); setPedidoNum(""); setTriageCompleted(true); }}
+                    className={cn(
+                      "flex flex-col items-center gap-3 rounded-xl border-2 p-6 transition-all text-center",
+                      isRevenda === false ? "border-vp-yellow bg-amber-50/60" : "border-border hover:border-vp-yellow/50 hover:bg-amber-50/20",
+                    )}
+                  >
+                    <Package className="h-10 w-10 text-vp-yellow-dark" />
+                    <div>
+                      <p className="font-semibold text-foreground">Uso e Consumo</p>
+                      <p className="text-xs text-muted-foreground mt-1">Compra interna, materiais e equipamentos</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setIsRevenda(true); setOmieResult(null); }}
+                    className={cn(
+                      "flex flex-col items-center gap-3 rounded-xl border-2 p-6 transition-all text-center",
+                      isRevenda === true ? "border-vp-yellow bg-amber-50/60" : "border-border hover:border-vp-yellow/50 hover:bg-amber-50/20",
+                    )}
+                  >
+                    <Tag className="h-10 w-10 text-vp-yellow-dark" />
+                    <div>
+                      <p className="font-semibold text-foreground">Revenda</p>
+                      <p className="text-xs text-muted-foreground mt-1">Produtos vinculados a um pedido de venda</p>
+                    </div>
+                  </button>
+                </div>
+
+                {isRevenda === true && (
+                  <div className="space-y-3 pt-1">
+                    <Separator />
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Número do Pedido de Venda *</label>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Ex.: 29088"
+                          value={pedidoNum}
+                          onChange={(e) => { setPedidoNum(e.target.value); setOmieResult(null); }}
+                          className="max-w-[180px]"
+                          onKeyDown={(e) => { if (e.key === "Enter") void handleValidateOmie(); }}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleValidateOmie}
+                          disabled={isValidatingOmie || !pedidoNum.trim()}
+                        >
+                          {isValidatingOmie ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verificar no Omie"}
+                        </Button>
+                      </div>
+                      {omieResult && (
+                        <div className="flex items-center gap-2 rounded-md bg-green-50 border border-green-200 px-3 py-2">
+                          <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                          <p className="text-sm text-green-800">
+                            Pedido <span className="font-semibold">{omieResult.numero}</span> confirmado — Vendedor: <span className="font-semibold">{omieResult.vendedor}</span>
+                          </p>
+                        </div>
+                      )}
+                      {omieResult && (
+                        <Button variant="vp" className="w-full" onClick={() => setTriageCompleted(true)}>
+                          Confirmar e iniciar requisição <ChevronRight className="h-4 w-4 ml-1" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>Cancelar</Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {/* ── Stepper (após triagem ou em modo edição) ── */}
+          {(editMode || triageCompleted) && (
+            <>
           {/* Stepper */}
           <div className="flex items-center justify-between mb-2">
             {STEPS.map((s, i) => {
@@ -707,68 +794,6 @@ function ProductsPage() {
                 </Button>
               )}
 
-              {/* Seção revenda */}
-              {items.length > 0 && !formActive && (
-                <>
-                  <Separator />
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium">Esses produtos são para revenda?</p>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={isRevenda === false ? "vp" : "outline"}
-                        onClick={() => { setIsRevenda(false); setOmieResult(null); setPedidoNum(""); }}
-                      >
-                        Não
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={isRevenda === true ? "vp" : "outline"}
-                        onClick={() => setIsRevenda(true)}
-                      >
-                        Sim
-                      </Button>
-                    </div>
-
-                    {isRevenda === true && (
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Número do Pedido de Venda</label>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Ex.: 29088"
-                            value={pedidoNum}
-                            onChange={(e) => {
-                              setPedidoNum(e.target.value);
-                              setOmieResult(null);
-                            }}
-                            className="max-w-[180px]"
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleValidateOmie}
-                            disabled={isValidatingOmie || !pedidoNum.trim()}
-                          >
-                            {isValidatingOmie ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verificar"}
-                          </Button>
-                        </div>
-
-                        {omieResult && (
-                          <div className="flex items-center gap-2 rounded-md bg-green-50 border border-green-200 px-3 py-2">
-                            <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
-                            <p className="text-sm text-green-800">
-                              Pedido <span className="font-semibold">{omieResult.numero}</span> confirmado — Vendedor: <span className="font-semibold">{omieResult.vendedor}</span>
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
             </div>
           )}
 
@@ -846,6 +871,8 @@ function ProductsPage() {
               </Button>
             )}
           </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

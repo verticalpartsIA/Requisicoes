@@ -23,7 +23,7 @@ export async function deleteRequisitionClient(requisitionId: string, actorId: st
   await deleteRequisition({ data: { requisitionId, actorId } });
 }
 
-interface ProductRequisitionInput {
+export interface ProductItemInput {
   productName: string;
   description: string;
   quantity: number;
@@ -32,11 +32,18 @@ interface ProductRequisitionInput {
   modelReference: string;
   referenceLinks: string[];
   onlinePurchaseSuggestion: string;
-  photoPath?: string;
+  photoPath?: string | null;
+}
+
+export interface ProductRequisitionInput {
+  items: ProductItemInput[];
   deliveryDeadline: string;
   deliveryLocation: string;
   urgencyLevel: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   justification: string;
+  revenda: boolean;
+  pedidoVendaNumero?: string | null;
+  pedidoVendaVendedor?: string | null;
   requesterName: string;
   requesterEmail: string;
   requesterDepartment: string;
@@ -70,13 +77,17 @@ export async function listProductRequisitionsClient() {
 }
 
 export async function createProductRequisitionClient(input: ProductRequisitionInput) {
-  // INSERT sem SELECT para não depender da policy de SELECT (can_view_requisition)
+  const title =
+    input.items.length === 1
+      ? input.items[0].productName
+      : `${input.items.length} itens — ${input.items[0].productName} e outros`;
+
   const { error } = await supabaseBrowser
     .from("requisitions")
     .insert({
       module: "M1",
-      title: input.productName,
-      description: input.description,
+      title,
+      description: input.items.map((i) => `${i.productName}: ${i.description}`).join(" | "),
       justification: input.justification,
       urgency: input.urgencyLevel,
       desired_date: input.deliveryDeadline.slice(0, 10),
@@ -86,21 +97,26 @@ export async function createProductRequisitionClient(input: ProductRequisitionIn
       requester_profile_id: input.requesterProfileId ?? null,
       estimated_cost: null,
       module_data: {
-        product_name: input.productName,
-        quantity: input.quantity,
-        technical_specs: input.technicalSpecs,
-        brand_preference: input.brandPreference,
-        model_reference: input.modelReference,
-        reference_links: input.referenceLinks,
-        online_purchase_suggestion: input.onlinePurchaseSuggestion,
-        photo_path: input.photoPath || null,
+        items: input.items.map((item) => ({
+          product_name: item.productName,
+          quantity: item.quantity,
+          description: item.description,
+          technical_specs: item.technicalSpecs,
+          brand_preference: item.brandPreference,
+          model_reference: item.modelReference,
+          reference_links: item.referenceLinks,
+          online_purchase_suggestion: item.onlinePurchaseSuggestion,
+          photo_path: item.photoPath ?? null,
+        })),
         delivery_location: input.deliveryLocation,
+        revenda: input.revenda,
+        pedido_venda_numero: input.pedidoVendaNumero ?? null,
+        pedido_venda_vendedor: input.pedidoVendaVendedor ?? null,
       },
     });
 
   if (error) throw new Error(friendlySupabaseError(error));
 
-  // Busca o ticket recém-criado em query separada
   const { data: created } = await supabaseBrowser
     .from("requisitions")
     .select("id,ticket_number,status")

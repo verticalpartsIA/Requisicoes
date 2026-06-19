@@ -32,15 +32,33 @@ export type RequisitionModule = keyof typeof MODULE_LABELS;
 export type RequisitionUrgency = keyof typeof URGENCY_LABELS;
 export type RequisitionStatus = keyof typeof STATUS_LABELS;
 
-export interface ProductModuleData {
+export interface ProductItem {
   product_name: string;
   quantity: number;
+  description: string;
   technical_specs: string;
   brand_preference: string;
   model_reference: string;
   reference_links: string[];
   online_purchase_suggestion: string;
+  photo_path: string | null;
+}
+
+export interface ProductModuleData {
+  items: ProductItem[];
   delivery_location: string;
+  revenda: boolean;
+  pedido_venda_numero: string | null;
+  pedido_venda_vendedor: string | null;
+  // Legado — requisições antigas (campo único)
+  product_name?: string;
+  quantity?: number;
+  technical_specs?: string;
+  brand_preference?: string;
+  model_reference?: string;
+  reference_links?: string[];
+  online_purchase_suggestion?: string;
+  photo_path?: string | null;
 }
 
 export interface RequisitionRecord {

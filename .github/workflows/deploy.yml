@@ -3,6 +3,7 @@ name: Deploy — Hostinger
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -19,6 +20,7 @@ jobs:
             cd /home/u969661049/domains/vprequisicoes.vpsistema.com/nodejs
             export PATH=/opt/alt/alt-nodejs22/root/usr/bin:$PATH
             git pull origin main
-            npm run build
+            set -a && . /home/u969661049/domains/vprequisicoes.vpsistema.com/public_html/.builds/config/.env && set +a
+            NODE_OPTIONS=--max-old-space-size=2048 npm run build
             touch tmp/restart.txt
             echo "Deploy concluído: $(git log --oneline -1)"

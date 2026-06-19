@@ -234,6 +234,7 @@ function MaintenancePage() {
           requester_department: profile?.department || "Não informado",
           requester_profile_id: user?.id ?? null,
           module_data: moduleData,
+          status: "GESTOR",
         });
 
       if (error) throw error;

@@ -9,12 +9,13 @@ import {
   Save,
   RefreshCw,
   ChevronDown,
+  Building2,
+  UserCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
@@ -34,6 +35,13 @@ import {
   type UserWithRoles,
   type TierThresholds,
 } from "@/features/admin/api";
+import {
+  setUserDepartmentClient,
+  listDeptManagersClient,
+  addDeptManagerClient,
+  removeDeptManagerClient,
+  type DeptManagerEntry,
+} from "@/features/admin/client";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin")({
@@ -73,8 +81,6 @@ const TIER_LABELS: Record<1 | 2 | 3, string> = {
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
-
-// ─── Página principal ──────────────────────────────────────────────────────
 
 function AdminPage() {
   const navigate = useNavigate();
@@ -135,16 +141,25 @@ function AdminPage() {
   );
 }
 
-// ─── Aba Usuários ──────────────────────────────────────────────────────────
-
 function UsersTab() {
   const [users, setUsers] = useState<UserWithRoles[]>([]);
+  const [deptManagers, setDeptManagers] = useState<DeptManagerEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingDept, setEditingDept] = useState<Record<string, string>>({});
+  const [newGestorDept, setNewGestorDept] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setUsers(await listUsersWithRoles());
+      const [usersData, managersData] = await Promise.all([
+        listUsersWithRoles(),
+        listDeptManagersClient(),
+      ]);
+      setUsers(usersData);
+      setDeptManagers(managersData);
+      const deptMap: Record<string, string> = {};
+      usersData.forEach((u) => { deptMap[u.id] = u.department ?? ""; });
+      setEditingDept(deptMap);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao carregar usuários.");
     } finally {
@@ -184,6 +199,39 @@ function UsersTab() {
     }
   };
 
+  const handleSaveDept = async (userId: string) => {
+    try {
+      await setUserDepartmentClient(userId, editingDept[userId] ?? "");
+      toast.success("Departamento atualizado.");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao salvar departamento.");
+    }
+  };
+
+  const handleAddGestor = async (userId: string) => {
+    const dept = (newGestorDept[userId] ?? "").trim();
+    if (!dept) { toast.error("Informe o nome do departamento."); return; }
+    try {
+      await addDeptManagerClient(dept, userId);
+      toast.success(`Usuário designado como gestor de "${dept}".`);
+      setNewGestorDept((prev) => ({ ...prev, [userId]: "" }));
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao designar gestor.");
+    }
+  };
+
+  const handleRemoveGestor = async (entryId: string) => {
+    try {
+      await removeDeptManagerClient(entryId);
+      toast.success("Designação de gestor removida.");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao remover gestor.");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -206,23 +254,23 @@ function UsersTab() {
         const existingRoles = user.roles.map((r) => r.role);
         const availableRoles = ALL_ROLES.filter((r) => !existingRoles.includes(r));
         const aprovadorEntry = user.roles.find((r) => r.role === "aprovador");
+        const userManagers = deptManagers.filter((dm) => dm.manager_user_id === user.id);
+        const currentDept = editingDept[user.id] ?? user.department ?? "";
+        const savedDept = user.department ?? "";
+        const deptChanged = currentDept !== savedDept;
 
         return (
           <Card key={user.id} className="border-border/60">
-            <CardContent className="pt-5 pb-4">
+            <CardContent className="pt-5 pb-4 space-y-4">
+              {/* Info do usuário + Papéis */}
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                {/* Info do usuário */}
                 <div className="min-w-0">
                   <p className="font-semibold text-sm truncate">
                     {user.full_name || "Sem nome"}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-                  {user.department && (
-                    <p className="text-xs text-muted-foreground">{user.department}</p>
-                  )}
                 </div>
 
-                {/* Papéis + ações */}
                 <div className="flex flex-col gap-2 min-w-0 sm:items-end">
                   <div className="flex flex-wrap gap-1.5">
                     {user.roles.map(({ role, approval_tier }) => (
@@ -269,7 +317,6 @@ function UsersTab() {
                     )}
                   </div>
 
-                  {/* Seletor de alçada para aprovador */}
                   {aprovadorEntry && (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">Alçada:</span>
@@ -301,6 +348,81 @@ function UsersTab() {
                   )}
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Departamento */}
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-xs text-muted-foreground w-24 shrink-0">Departamento:</span>
+                <Input
+                  className="h-7 text-xs max-w-[200px]"
+                  placeholder="Ex: Engenharia"
+                  value={currentDept}
+                  onChange={(e) =>
+                    setEditingDept((prev) => ({ ...prev, [user.id]: e.target.value }))
+                  }
+                />
+                {deptChanged && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs px-2"
+                    onClick={() => void handleSaveDept(user.id)}
+                  >
+                    <Save className="h-3 w-3 mr-1" />
+                    Salvar
+                  </Button>
+                )}
+              </div>
+
+              {/* Gestor de departamentos */}
+              <div className="flex items-start gap-2">
+                <UserCheck className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                <span className="text-xs text-muted-foreground w-24 shrink-0 mt-0.5">Gestor de:</span>
+                <div className="flex flex-col gap-1.5 flex-1">
+                  {userManagers.length === 0 && (
+                    <span className="text-xs text-muted-foreground italic">Não designado</span>
+                  )}
+                  {userManagers.map((dm) => (
+                    <span
+                      key={dm.id}
+                      className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 w-fit"
+                    >
+                      {dm.department}
+                      <button
+                        className="ml-0.5 hover:opacity-70 transition-opacity"
+                        title="Remover designação"
+                        onClick={() => void handleRemoveGestor(dm.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Input
+                      className="h-7 text-xs max-w-[180px]"
+                      placeholder="Departamento..."
+                      value={newGestorDept[user.id] ?? ""}
+                      onChange={(e) =>
+                        setNewGestorDept((prev) => ({ ...prev, [user.id]: e.target.value }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void handleAddGestor(user.id);
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs px-2"
+                      onClick={() => void handleAddGestor(user.id)}
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Designar
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         );
@@ -308,8 +430,6 @@ function UsersTab() {
     </div>
   );
 }
-
-// ─── Aba Alçadas ───────────────────────────────────────────────────────────
 
 function TiersTab() {
   const [thresholds, setThresholds] = useState<TierThresholds>({ tier1_max: 1500, tier2_max: 3500 });
@@ -359,7 +479,6 @@ function TiersTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          {/* Faixa visual */}
           <div className="grid grid-cols-3 gap-3 text-center text-xs">
             <div className="rounded-lg border bg-blue-50 p-3">
               <p className="font-semibold text-blue-700">1ª Alçada</p>
@@ -383,7 +502,6 @@ function TiersTab() {
 
           <Separator />
 
-          {/* Inputs de edição */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="tier1_max">Limite máximo da 1ª alçada (R$)</Label>

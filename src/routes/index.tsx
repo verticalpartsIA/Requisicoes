@@ -45,6 +45,7 @@ function urgencyColor(u: string) {
 }
 
 function statusColor(s: string) {
+  if (s === "GESTOR") return "bg-amber-100 text-amber-800";
   if (s === "ABERTO") return "bg-blue-100 text-blue-700";
   if (s === "COTAÇÃO") return "bg-purple-100 text-purple-700";
   if (s === "APROVAÇÃO") return "bg-amber-100 text-amber-700";

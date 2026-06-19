@@ -1,4 +1,4 @@
-export const OPEN_STATUSES = ["ABERTO", "COTAÇÃO", "APROVAÇÃO", "COMPRA", "RECEBIMENTO"] as const;
+export const OPEN_STATUSES = ["GESTOR", "ABERTO", "COTAÇÃO", "APROVAÇÃO", "COMPRA", "RECEBIMENTO"] as const;
 
 export const MODULE_LABELS = {
   M1: "Produtos",
@@ -18,6 +18,7 @@ export const URGENCY_LABELS = {
 
 export const STATUS_LABELS = {
   RASCUNHO: "Rascunho",
+  GESTOR: "Aguard. Gestor",
   ABERTO: "Aberto",
   COTAÇÃO: "Cotação",
   APROVAÇÃO: "Aprovação",

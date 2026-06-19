@@ -108,3 +108,45 @@ export async function saveTierThresholds(thresholds: TierThresholds): Promise<vo
 
   if (error) throw error;
 }
+
+// ─── Departamento do usuário ──────────────────────────────────────────────────
+
+export async function setUserDepartment(userId: string, department: string): Promise<void> {
+  const { error } = await supabaseBrowser
+    .from("profiles")
+    .update({ department: department.trim() || null })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+// ─── Gestores de Departamento ─────────────────────────────────────────────────
+
+export interface DepartmentManagerEntry {
+  id: string;
+  department: string;
+  manager_user_id: string;
+}
+
+export async function listDepartmentManagers(): Promise<DepartmentManagerEntry[]> {
+  const { data, error } = await supabaseBrowser
+    .from("department_managers")
+    .select("id, department, manager_user_id")
+    .order("department");
+  if (error) throw error;
+  return (data ?? []) as DepartmentManagerEntry[];
+}
+
+export async function addDepartmentManager(department: string, userId: string): Promise<void> {
+  const { error } = await supabaseBrowser
+    .from("department_managers")
+    .insert({ department: department.trim(), manager_user_id: userId });
+  if (error) throw error;
+}
+
+export async function removeDepartmentManager(entryId: string): Promise<void> {
+  const { error } = await supabaseBrowser
+    .from("department_managers")
+    .delete()
+    .eq("id", entryId);
+  if (error) throw error;
+}

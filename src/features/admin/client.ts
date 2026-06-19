@@ -125,3 +125,43 @@ export async function saveAdminUserRolesClient(
 
   if (syncError) throw syncError;
 }
+
+// ─── Departamento e Gestores de Departamento ──────────────────────────────────
+
+export async function setUserDepartmentClient(userId: string, department: string): Promise<void> {
+  const { error } = await supabaseBrowser
+    .from("profiles")
+    .update({ department: department.trim() || null })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+export interface DeptManagerEntry {
+  id: string;
+  department: string;
+  manager_user_id: string;
+}
+
+export async function listDeptManagersClient(): Promise<DeptManagerEntry[]> {
+  const { data, error } = await supabaseBrowser
+    .from("department_managers")
+    .select("id, department, manager_user_id")
+    .order("department");
+  if (error) throw error;
+  return (data ?? []) as DeptManagerEntry[];
+}
+
+export async function addDeptManagerClient(department: string, userId: string): Promise<void> {
+  const { error } = await supabaseBrowser
+    .from("department_managers")
+    .insert({ department: department.trim(), manager_user_id: userId });
+  if (error) throw error;
+}
+
+export async function removeDeptManagerClient(entryId: string): Promise<void> {
+  const { error } = await supabaseBrowser
+    .from("department_managers")
+    .delete()
+    .eq("id", entryId);
+  if (error) throw error;
+}
